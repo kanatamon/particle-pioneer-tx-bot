@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>User Data</title>
+  </head>
+  <body>
+    <div id="userData"></div>
+
+    <script>
+      // Function to fetch user data from the server
+      async function fetchData() {
+        const response = await fetch('/data');
+        const data = await response.json();
+        return data;
+      }
+
+      // Function to update the UI with user data
+      async function updateUI() {
+        const userDataDiv = document.getElementById('userData');
+        const { userList, userTxCounts } = await fetchData();
+
+        let html = '<h2>User Tx</h2>';
+        html +=
+          '<div style="display: grid; grid-template-columns: auto 1fr; column-gap: 16px;">';
+        userList.forEach((user) => {
+          html += `<span>${user}</span><span>${userTxCounts[user]} <small style="color: #808080;">/100 tx</small></span>`;
+        });
+        html += '</div>';
+
+        userDataDiv.innerHTML = html;
+      }
+
+      // Polling to update the UI every 5 seconds
+      setInterval(updateUI, 5000);
+
+      // Initial update of the UI
+      updateUI();
+    </script>
+  </body>
+</html>

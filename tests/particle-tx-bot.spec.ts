@@ -1,13 +1,31 @@
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import credentials from '../credentials.json';
+import fetch from 'node-fetch';
+import type { SocialNetworKCredential } from '../credentials';
+import { credentials } from '../credentials';
 
-const TWO_HOURS = 2 * 60 * 60 * 1000;
+const FIVE_HOURS = 5 * 60 * 60 * 1000;
 
-const MAX_DAILY_TX_POINT = 5_000;
 const POINT_PER_TX = 50;
+const MAX_DAILY_TX = 100;
 
 test.describe.configure({ mode: 'parallel' });
+
+test.beforeAll(async () => {
+  await fetch('http://localhost:3000/user/list', {
+    method: 'POST',
+    body: JSON.stringify({ users: credentials.map((c) => c.emailOrUsername) }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+
+function updateTxCount(user: string, txCount: number) {
+  return fetch('http://localhost:3000/user/tx-count', {
+    method: 'POST',
+    body: JSON.stringify({ user, txCount }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 // {
 //     "id": 1368546,
@@ -28,17 +46,11 @@ type PointRecord = {
   point: string;
 };
 
-type SocialNetworKCredential = {
-  type: 'discord' | 'twitter';
-  emailOrUsername: string;
-  password: string;
-};
-
 for (const credential of credentials as SocialNetworKCredential[]) {
   test(`[${credential.emailOrUsername}] daily check-in & transfer tx`, async ({
     page,
   }) => {
-    test.setTimeout(TWO_HOURS);
+    test.setTimeout(FIVE_HOURS);
 
     await page.setViewportSize({
       width: 900,
@@ -50,9 +62,11 @@ for (const credential of credentials as SocialNetworKCredential[]) {
     if (!userLoggedIn) {
       throw new Error('Failed to login');
     }
-
-    for (let i = 0; i < (await totalTxToMake(page)); i++) {
+    for (let i = await currentTxMade(page); i < MAX_DAILY_TX; i++) {
       await makeSuccessfulTx(credential, page);
+      updateTxCount(credential.emailOrUsername, i + 1);
+      const wait = 5_000;
+      await page.waitForTimeout(wait);
     }
   });
 }
@@ -79,7 +93,7 @@ async function makeSuccessfulTx(
   await fillSendPageFields(
     {
       address: '0xe2f35B11c5B54DbB2176D055E5531E41e7721457',
-      amount: '0.00001',
+      amount: '0.000001',
     },
     page
   );
@@ -146,7 +160,9 @@ async function signInViaDiscord(
   await page.getByRole('button', { name: /log in/i }).click();
 
   // Verify navigation to authorize page
-  await expect(page.getByRole('button', { name: /authorize/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /authorize/i })).toBeVisible({
+    timeout: 20_000,
+  });
   await page.getByRole('button', { name: /authorize/i }).click();
 
   // Verify navigation back to the Pioneer page
@@ -169,7 +185,7 @@ async function signInViaTwitter(
 
   const usernameInput = page.locator('input[autocomplete=username]');
   await expect(usernameInput).toBeVisible({
-    timeout: 10_000,
+    timeout: 20_000,
   });
 
   await usernameInput.pressSequentially(emailOrUsername, { delay: 100 });
@@ -186,7 +202,9 @@ async function signInViaTwitter(
   // Verify navigation to authorize page
   await expect(
     page.getByRole('button', { name: /authorize app/i })
-  ).toBeVisible();
+  ).toBeVisible({
+    timeout: 20_000,
+  });
   await page.getByRole('button', { name: /authorize app/i }).click();
 
   // Verify navigation back to the Pioneer page
@@ -199,37 +217,43 @@ async function signInViaTwitter(
  *
  * 🚨 Due to shadow-root (close mode), it's impossible to access the sign-info UI using javascript
  * ,instead, we implicitly check whether the "Sign" modal is visible by listening to the network request
+ *
  */
-function checkSignInfoPopUp(page: Page, options?: { timeout?: number }) {
-  let isIgnored = false;
-  return new Promise<boolean>((resolve) => {
-    page.on('response', async (response) => {
-      const request = response.request();
-      if (isIgnored) return;
-      if (
-        response.ok() &&
-        request.url() === 'https://universal-api.particle.network/' &&
-        request.method().match(/post/i) &&
-        request.postDataJSON()?.method ===
-          'universal_createCrossChainUserOperation'
-      ) {
-        // Approximated wait for UI to be attached to the DOM
-        await new Promise((r) => setTimeout(r, 1000));
-        resolve(true);
-      }
-    });
-    setTimeout(() => {
-      isIgnored = true;
-      resolve(false);
-    }, options?.timeout ?? 20_000);
-  });
+async function checkSignInfoPopUp(page: Page, options?: { timeout?: number }) {
+  await page.waitForTimeout(3_000);
+  return true;
+  /**
+   * @deprecated The pioneer.particle.network is now using a different method to handle the sign-info modal
+   */
+  // let isIgnored = false;
+  // return new Promise<boolean>((resolve) => {
+  //   page.on('response', async (response) => {
+  //     const request = response.request();
+  //     if (isIgnored) return;
+  //     if (
+  //       response.ok() &&
+  //       request.url() === 'https://universal-api.particle.network/' &&
+  //       request.method().match(/post/i) &&
+  //       request.postDataJSON()?.method ===
+  //         'universal_createCrossChainUserOperation'
+  //     ) {
+  //       // Approximated wait for UI to be attached to the DOM
+  //       await new Promise((r) => setTimeout(r, 1000));
+  //       resolve(true);
+  //     }
+  //   });
+  //   setTimeout(() => {
+  //     isIgnored = true;
+  //     resolve(false);
+  //   }, options?.timeout ?? 20_000);
+  // });
 }
 
 async function checkUserLoggedIn(page: Page, options?: { timeout?: number }) {
   await page.goto('https://pioneer.particle.network/en/point');
   return locators(page)
     .pweBtn()
-    .waitFor({ state: 'attached', timeout: options?.timeout ?? 10_000 })
+    .waitFor({ state: 'attached', timeout: options?.timeout ?? 20_000 })
     .then(() => true)
     .catch(() => false);
 }
@@ -352,7 +376,7 @@ async function fillSendPageFields(
 
 async function invariantErc4337Modal(page: Page) {
   await expect(locators(page).pweErc4337Modal()).toBeInViewport({
-    timeout: 20_000,
+    timeout: 60_000,
   });
 
   await expect(locators(page).pweErc4337ModalTokenName()).toHaveText('USDG');
@@ -378,7 +402,7 @@ async function invariantErc4337Modal(page: Page) {
 async function checkTxSuccess(page: Page) {
   return expect(locators(page).pweTxSuccessModal())
     .toBeInViewport({
-      timeout: 40_000,
+      timeout: 60_000,
     })
     .then(() => true)
     .catch(() => false);
@@ -407,8 +431,7 @@ async function checkTodayPointEarned(page: Page) {
   });
 }
 
-async function totalTxToMake(page: Page) {
+async function currentTxMade(page: Page) {
   const pointEarned = await checkTodayPointEarned(page);
-  const availablePointToEarn = MAX_DAILY_TX_POINT - pointEarned;
-  return Math.floor(availablePointToEarn / POINT_PER_TX);
+  return Math.floor(pointEarned / POINT_PER_TX);
 }

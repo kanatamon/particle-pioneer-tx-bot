@@ -26,3 +26,5 @@ npm instal
 ```bash
 npm run bot
 ```
+
+> You can see number of tx via `http://localhost:3000`
