@@ -25,7 +25,10 @@
         html +=
           '<div style="display: grid; grid-template-columns: auto 1fr; column-gap: 16px;">';
         userList.forEach((user) => {
-          html += `<span>${user}</span><span>${userTxCounts[user]} <small style="color: #808080;">/100 tx</small></span>`;
+          const row = userTxCounts[user]
+            ? `<span>${user}</span><span>${userTxCounts[user]} <small style="color: #808080;">/100 tx</small></span>`
+            : `<span>${user}</span><span><small style="color: #808080;">pending</small></span>`;
+          html += row;
         });
         html += '</div>';
 
